@@ -25,24 +25,28 @@ use arrow::{
 use duckdb::Connection;
 use reqwest::blocking::Client;
 use serde_json::Value;
+use crate::ckan_reader::CkanReader;
+use crate::ckan_resource::CkanResource;
 
 const MAX_RECORDS_FETCH: usize = 100_000;
 
-pub struct DatastoreReader {
-    pub datastore_url: String,
-    conn: Connection,
+pub struct DatastoreReader<'a> {
+    conn: &'a Connection,
+    datastore_url: String,
 }
 
-impl DatastoreReader {
-    pub fn new(url: impl Into<String>) -> Result<Self> {
-        let conn = Connection::open_in_memory()?;
-        Ok(Self {
-            datastore_url: url.into(),
-            conn,
-        })
+impl<'a> DatastoreReader<'a> {
+    pub fn new(conn: &'a Connection, datastore_url: String) -> Self {
+        Self { datastore_url, conn }
     }
+}
 
-    pub fn read(&self, resource_id: &str) -> Result<Vec<RecordBatch>> {
+impl CkanReader for DatastoreReader<'_> {
+    fn supported_formats(&self) -> Vec<String> {
+        vec![]
+    }
+    fn do_read(&self, resource: &CkanResource) -> Result<Vec<RecordBatch>> {
+        let resource_id = resource.id.clone();
         let client = Client::new();
         let mut offset = 0;
         let mut batches = Vec::new();
@@ -74,11 +78,11 @@ impl DatastoreReader {
             let mut columns: Vec<Vec<String>> = vec![Vec::new(); column_names.len()];
             for rec in recs {
                 let obj = rec
-                    .as_object()
+                    .as_array()
                     .ok_or_else(|| anyhow!("record not object"))?;
-                for (i, name) in column_names.iter().enumerate() {
+                for (i, _name) in column_names.iter().enumerate() {
                     let val = obj
-                        .get(name)
+                        .get(i)
                         .map(|v| match v {
                             Value::String(s) => s.clone(),
                             Value::Null => String::new(),
@@ -108,5 +112,9 @@ impl DatastoreReader {
         } else {
             Ok(batches)
         }
+    }
+
+    fn can_read(&self, resource: &CkanResource) -> bool {
+        resource.datastore_active
     }
 }

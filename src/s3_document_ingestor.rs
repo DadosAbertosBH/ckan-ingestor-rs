@@ -16,40 +16,44 @@
 // along with ckan-ingestor-rs.  If not, see <https://www.gnu.org/licenses/>.
 use crate::config::S3Settings;
 use anyhow::Result;
-use reqwest::blocking::Client;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
+use aws_sdk_s3::Client as S3Client;
+use reqwest::Client as HttpClient;
 
 pub struct S3DocumentIngestor {
-    pub base_path: PathBuf,
     pub public_url: String,
+    pub s3_client: S3Client,
+    pub bucket: String,
 }
 
 impl S3DocumentIngestor {
-    pub fn new(settings: S3Settings) -> Result<Self> {
-        let base_path = PathBuf::from("docs");
-        std::fs::create_dir_all(&base_path)?;
+    pub fn new(settings: S3Settings, s3_client: S3Client) -> Result<Self> {
         let protocol = if settings.use_ssl { "https" } else { "http" };
         let public_url = format!("{}://{}/{}", protocol, settings.endpoint, settings.bucket);
         Ok(Self {
-            base_path,
             public_url,
+            s3_client,
+            bucket: settings.bucket,
         })
     }
 
-    pub fn ingest(
+    pub async fn ingest(
         &self,
         filename: &str,
         download_url: &str,
-        _content_type: &str,
+        content_type: &str,
     ) -> Result<String> {
-        let client = Client::new();
-        let resp = client.get(download_url).send()?;
-        let bytes = resp.bytes()?;
-        let path = self.base_path.join(filename);
-        let mut file = File::create(&path)?;
-        file.write_all(&bytes)?;
-        Ok(format!("{}/{}", self.public_url, filename))
+        let client = HttpClient::new();
+        let resp = client.get(download_url).send().await?;
+        let bytes = resp.bytes().await?;
+        let object_url = format!("docs/{filename}");
+        self.s3_client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(object_url.clone())
+            .body(bytes.clone().into())
+            .content_type(content_type)
+            .send()
+            .await?;
+        Ok(format!("{}/{}", self.public_url, object_url))
     }
 }

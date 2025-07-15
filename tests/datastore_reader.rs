@@ -15,9 +15,11 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with ckan-ingestor-rs.  If not, see <https://www.gnu.org/licenses/>.
 mod common;
-use common::fixture_path;
 use anyhow::Result;
+use ckan_ingestor_rs::ckan_reader::CkanReader;
+use ckan_ingestor_rs::ckan_resource::CkanResource;
 use ckan_ingestor_rs::datastore_reader::DatastoreReader;
+use common::fixture_path;
 use httpmock::{Method::GET, MockServer};
 
 #[test]
@@ -45,8 +47,18 @@ fn read_datastore() -> Result<()> {
             .header("Content-Type", "application/json")
             .body("{\"fields\":[{\"id\":\"_id\"}],\"records\":[]}");
     });
-    let reader = DatastoreReader::new(format!("http://{}", server.address()))?;
-    let batches = reader.read(id)?;
+
+    let conn = duckdb::Connection::open_in_memory()?;
+    let reader = DatastoreReader::new(&conn, format!("http://{}/datastore", server.address()));
+
+    let resource = CkanResource{
+        id: id.to_string(),
+        url: fixture_path("non_latin1_and_non_utf8.csv").to_str().unwrap().to_string(),
+        format: "CSV".to_string(),
+        datastore_active: true
+    };
+
+    let batches = reader.read(&resource)?;
     assert!(!batches.is_empty());
     Ok(())
 }
@@ -66,8 +78,17 @@ fn read_invalid_json() -> Result<()> {
             .header("Content-Type", "application/json")
             .body(body.clone());
     });
-    let reader = DatastoreReader::new(format!("http://{}", server.address()))?;
-    let result = reader.read(id);
+    let conn = duckdb::Connection::open_in_memory()?;
+    let reader = DatastoreReader::new(&conn, format!("http://{}", server.address()));
+
+    let resource = CkanResource{
+        id: id.to_string(),
+        url: fixture_path("non_latin1_and_non_utf8.csv").to_str().unwrap().to_string(),
+        format: "CSV".to_string(),
+        datastore_active: false
+    };
+
+    let result = reader.read(&resource);
     assert!(result.is_err());
     Ok(())
 }

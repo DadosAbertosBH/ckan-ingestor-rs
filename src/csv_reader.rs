@@ -14,23 +14,32 @@
 //
 // You should have received a copy of the GNU Affero General Public License
 // along with ckan-ingestor-rs.  If not, see <https://www.gnu.org/licenses/>.
+use crate::ckan_reader::CkanReader;
+use crate::ckan_resource::CkanResource;
 use anyhow::Result;
 use duckdb::{arrow::record_batch::RecordBatch, Connection};
 
-pub struct CsvReader {
-    conn: Connection,
+pub struct CsvReader<'a> {
+    conn: &'a Connection,
+    delim: String,
 }
 
-impl CsvReader {
-    pub fn new() -> Result<Self> {
-        let conn = Connection::open_in_memory()?;
-        Ok(Self { conn })
+impl<'a> CsvReader<'a> {
+    pub fn new(conn: &'a Connection, delim: String) -> Self {
+        Self { conn, delim }
+    }
+}
+
+impl CkanReader for CsvReader<'_> {
+    fn supported_formats(&self) -> Vec<String> {
+        vec!["CSV".to_string()]
     }
 
-    pub fn read(&self, url: &str) -> Result<Vec<RecordBatch>> {
-        let query = format!("SELECT * FROM read_csv_auto('{url}')");
-        let mut stmt = self.conn.prepare(&query)?;
-        let arrow_iterator = stmt.query_arrow([])?;
+    fn do_read(&self, resource: &CkanResource) -> Result<Vec<RecordBatch>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT * FROM read_csv_auto(?, delim=?)")?;
+        let arrow_iterator = stmt.query_arrow([resource.url.clone(), self.delim.clone()])?;
         let batches = arrow_iterator.collect();
         Ok(batches)
     }

@@ -45,3 +45,10 @@ impl Default for S3Settings {
         }
     }
 }
+
+impl S3Settings {
+    pub fn endpoint_url(&self) -> String {
+        let scheme = if self.use_ssl { "https" } else { "http" };
+        format!("{}://{}", scheme, self.endpoint)
+    }
+}

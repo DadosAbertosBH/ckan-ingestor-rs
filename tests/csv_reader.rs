@@ -15,48 +15,63 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with ckan-ingestor-rs.  If not, see <https://www.gnu.org/licenses/>.
 mod common;
-use common::fixture_path;
 use anyhow::Result;
 use ckan_ingestor_rs::csv_reader::CsvReader;
-use httpmock::Method::GET;
-use httpmock::MockServer;
+use ckan_ingestor_rs::ckan_reader::CkanReader;
+use ckan_ingestor_rs::ckan_resource::CkanResource;
+use common::fixture_path;
+use uuid::uuid;
 
 #[test]
 fn parse_latin_encoded_csv() -> Result<()> {
-    let reader = CsvReader::new()?;
-    let path = fixture_path("csv_with_latin_encode.csv");
-    let batches = reader.read(path.to_str().unwrap())?;
-    assert!(!batches.is_empty());
+    let conn = duckdb::Connection::open_in_memory()?;
+    let reader = CsvReader::new(&conn, ";".to_string());
+
+    let resource = CkanResource{
+        id: "00000000-0000-0000-0000-ffff00000000".to_string(),
+        url: fixture_path("csv_with_latin_encode.csv").to_str().unwrap().to_string(),
+        format: "CSV".to_string(),
+        datastore_active: false
+    };
+
+    let batches = reader.read(&resource)?;
+    let total: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+    assert_eq!(total, 2);
     Ok(())
 }
 
 #[test]
 fn parse_non_latin_and_non_utf8() -> Result<()> {
-    let reader = CsvReader::new()?;
-    let path = fixture_path("non_latin1_and_non_utf8.csv");
-    let batches = reader.read(path.to_str().unwrap())?;
-    assert!(!batches.is_empty());
+    let conn = duckdb::Connection::open_in_memory()?;
+    let reader = CsvReader::new(&conn, ";".to_string());
+
+    let resource = CkanResource{
+        id: "00000000-0000-0000-0000-ffff00000000".to_string(),
+        url: fixture_path("non_latin1_and_non_utf8.csv").to_str().unwrap().to_string(),
+        format: "CSV".to_string(),
+        datastore_active: false
+    };
+
+    let batches = reader.read(&resource)?;
+    println!("{}" ,batches[0].num_rows());
+    let total: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+    assert_eq!(total, 2);
     Ok(())
 }
 
 #[test]
 fn csv_with_bom() -> Result<()> {
-    let server = MockServer::start();
-    let body = std::fs::read(fixture_path("csv_with_bom.csv"))?;
-    server.mock(|when, then| {
-        when.method(GET)
-            .path("/datastore/csv_with_bom")
-            .query_param("format", "csv");
-        then.status(200)
-            .header("Content-Type", "text/csv")
-            .body(body.clone());
-    });
-    let reader = CsvReader::new()?;
-    let url = format!(
-        "http://{}/datastore/csv_with_bom?format=csv",
-        server.address()
-    );
-    let batches = reader.read(&url)?;
-    assert!(!batches.is_empty());
+    let conn = duckdb::Connection::open_in_memory()?;
+    let reader = CsvReader::new(&conn, ",".to_string());
+
+    let resource = CkanResource{
+        id: "00000000-0000-0000-0000-ffff00000000".to_string(),
+        url: fixture_path("csv_with_bom.csv").to_str().unwrap().to_string(),
+        format: "CSV".to_string(),
+        datastore_active: false
+    };
+    let batches = reader.read(&resource)?;
+    let total: usize = batches.iter().map(|batch| batch.num_rows()).sum();
+    assert_eq!(total, 804);
     Ok(())
 }
